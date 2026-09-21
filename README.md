@@ -1,293 +1,882 @@
-# RISC-V Single-Cycle CPU with RV32I Instruction Set
+# 32-bit Single-Cycle RISC-V CPU
 
-This repository contains a compact single-cycle RISC-V processor designed around the RV32I integer instruction set. The design focuses on the fundamental building blocks of a CPU datapath: fetching instructions, decoding control signals, reading and writing registers, generating immediates, performing ALU operations, and branching based on conditions.
+This repository contains a 32-bit single-cycle RISC-V processor implemented in synthesizable Verilog RTL. The design targets a practical subset of the RV32I integer instruction set and emphasizes the hardware implementation of a CPU datapath: instruction fetch, decode, register access, immediate generation, ALU execution, memory access, control-flow handling, and register writeback.
 
-The project is implemented in Verilog and is intended for learning digital design, CPU architecture, and hardware description modeling.
+The project was developed and verified in Vivado using behavioral simulation, waveform analysis, and RTL-level debugging. It is intended as a serious digital hardware design project showcasing datapath and control integration for a processor architecture rather than a generic educational example.
 
-## Project Goal
+## Table of Contents
 
-The objective of this project is to model a simple CPU that can execute instructions in a single clock cycle by combining the following functional units:
+- [Project Overview](#project-overview)
+- [Objectives](#objectives)
+- [ISA Support](#isa-support)
+- [Instruction Format / ISA Coverage](#instruction-format--isa-coverage)
+- [CPU Architecture](#cpu-architecture)
+- [Datapath Diagram](#datapath-diagram)
+- [RTL Module Architecture](#rtl-module-architecture)
+- [Control Unit](#control-unit)
+- [ALU Control](#alu-control)
+- [Immediate Generation](#immediate-generation)
+- [PC / Control Flow Path](#pc--control-flow-path)
+- [JAL / JALR Return Address](#jal--jalr-return-address)
+- [Memory Operations](#memory-operations)
+- [BEQ Verification](#beq-verification)
+- [Verification Methodology](#verification-methodology)
+- [Verified Instructions](#verified-instructions)
+- [Representative Waveform](#representative-waveform)
+- [Elaborated Design](#elaborated-design)
+- [Toolchain / Development Flow](#toolchain--development-flow)
+- [Design Debugging and Key Fixes](#design-debugging-and-key-fixes)
+- [Example Execution Flow](#example-execution-flow)
+- [Repository Structure](#repository-structure)
+- [Limitations](#limitations)
+- [Future Work](#future-work)
+- [Why This Project Matters](#why-this-project-matters)
+- [Synthesis & FPGA Implementation — Planned](#synthesis--fpga-implementation--planned)
+- [Author](#author)
 
-- Program Counter (PC)
+---
+
+## Project Overview
+
+The project is a 32-bit single-cycle RISC-V CPU implemented in Verilog HDL. The processor follows a single-cycle datapath in which each instruction completes its major execution stages within one clock cycle.
+
+The design was developed and simulated using:
+
+- Verilog HDL
+- AMD/Xilinx Vivado Design Suite
+- Vivado Behavioral Simulation
+- Xilinx Artix-7 FPGA target
+- Device: xc7a35tftg256-1
+- GNU RISC-V toolchain
+- WSL/Ubuntu for assembling and generating RISC-V machine-code test programs
+
+This project focuses on understanding how a CPU operates at the RTL level, including:
+
+- program counter generation
+- instruction fetching
+- instruction decoding
+- register-file access
+- immediate generation
+- ALU operation selection
+- arithmetic/logical execution
+- load/store memory operations
+- conditional branching
+- unconditional jumps
+- register writeback
+- JAL/JALR return-address handling
+- RTL simulation and waveform-based verification
+
+The implemented CPU is not a full RV32I general-purpose processor; it is a verified subset of the RV32I integer ISA implemented and validated at the RTL level.
+
+---
+
+## Objectives
+
+1. Design a 32-bit single-cycle RISC-V processor using synthesizable Verilog RTL.
+2. Implement a practical subset of the RV32I instruction set.
+3. Design the CPU datapath and control unit from individual RTL modules.
+4. Implement instruction, register, and data-memory interfaces.
+5. Implement immediate generation for multiple RISC-V instruction formats.
+6. Implement ALU control using opcode/funct fields.
+7. Implement conditional branch and jump mechanisms.
+8. Verify individual instructions using Vivado behavioral simulation.
+9. Verify control-flow instructions using RTL waveforms.
+10. Elaborate the complete RTL design in Vivado and inspect the generated hardware hierarchy.
+
+---
+
+## ISA Support
+
+This design implements a verified RV32I instruction subset. The current implementation supports the instructions listed below and has been checked by behavioral simulation and waveform inspection.
+
+| Category | Instructions | Status |
+| --- | --- | --- |
+| R-Type | ADD, SUB, AND, OR | Verified |
+| I-Type | ADDI | Verified |
+| Load/Store | LW, SW | Verified |
+| Branch | BEQ | Verified |
+| U-Type | LUI, AUIPC | Verified |
+| Jump | JAL, JALR | Verified |
+
+The current project is best described as a Verified RV32I instruction subset rather than a complete RV32I implementation. The design is intentionally scoped to the instructions implemented and tested in this repository and can be extended toward the complete RV32I base ISA in future work.
+
+The following instructions are not claimed as implemented in this revision:
+
+- BNE
+- BLT
+- BGE
+- SLT
+- SLTI
+- shifts
+- byte/halfword loads/stores
+- other unverified RV32I instructions
+
+---
+
+## Instruction Format / ISA Coverage
+
+The implementation covers multiple RISC-V instruction formats used in the current datapath and control logic:
+
+- R-type
+- I-type
+- S-type
+- B-type
+- U-type
+- J-type
+
+| Instruction | Format | Main datapath operation |
+| --- | --- | --- |
+| ADD | R | Register + Register |
+| SUB | R | Register - Register |
+| AND | R | Bitwise AND |
+| OR | R | Bitwise OR |
+| ADDI | I | Register + Immediate |
+| LW | I | Address calculation + memory read |
+| SW | S | Address calculation + memory write |
+| BEQ | B | Register comparison + PC-relative branch |
+| LUI | U | Upper immediate writeback |
+| AUIPC | U | PC + upper immediate |
+| JAL | J | PC-relative jump + PC+4 writeback |
+| JALR | I | Register-relative jump + PC+4 writeback |
+
+---
+
+## CPU Architecture
+
+The processor is a classic single-cycle CPU datapath. Each instruction performs the major execution steps in one clock cycle: fetch, decode, register read, ALU operation, memory access (if needed), and writeback.
+
+The major RTL blocks are:
+
+- Program Counter
+- PC + 4 incrementer
 - Instruction Memory
+- Control Unit
 - Register File
 - Immediate Generator
-- Control Unit
-- ALU and ALU Control
-- Branch Logic
+- ALU Control
+- ALU
+- Branch Adder
+- Branch Gate Logic
 - Data Memory
-- Multiplexers for datapath selection
+- Multiplexers
+- Writeback path
+- JAL/JALR PC selection
+- JAL/JALR return-address writeback
 
-The result is a minimal but conceptually accurate single-cycle datapath that illustrates the architecture of a basic RISC-V processor.
+The instruction flow is:
 
-## High-Level Architecture
+PC
+→ Instruction Memory
+→ Instruction Decode / Control
+→ Register File + Immediate Generator
+→ ALU
+→ Data Memory / Branch / Jump logic
+→ Writeback
+→ Register File
 
-The full processor datapath is represented in the block diagram below.
+The PC update path supports the following sources:
 
-![RISC-V single-cycle CPU datapath](design.png)
-
-This diagram shows how the instruction memory, control unit, register file, ALU, branch unit, and memory blocks are interconnected. The flow is as follows:
-
-1. The PC sends the current instruction address to instruction memory.
-2. Instruction memory fetches the instruction word.
-3. The instruction is decoded to identify the opcode and fields such as rs1, rs2, rd, funct3, and funct7.
-4. The control unit generates the selection and enable signals for the datapath.
-5. The immediate generator extracts the correct immediate value depending on the instruction type.
-6. The register file reads the operands, and the ALU performs the required operation.
-7. Branch and jump conditions decide the next PC value.
-8. Data memory is accessed when the instruction is a load/store operation.
-
----
-
-## What This CPU Supports
-
-This project implements the core ideas behind the RV32I subset, including:
-
-- Integer register-register operations
-- Immediate arithmetic/logical operations
-- Load and store instructions
-- Branch instructions
-- Jump and link operations
-- Upper-immediate instructions such as LUI and AUIPC
-
-The design is intentionally modular, which makes it easy to understand and extend.
+- PC + 4 for sequential execution
+- PC + branch immediate for BEQ
+- PC + JAL immediate for JAL
+- rs1 + immediate for JALR
 
 ---
 
-## Key Modules and Their Roles
+## Datapath Diagram
 
-### 1. Program Counter
-File: `program_counter.v`
+The following Mermaid diagram captures the architecture of the implemented single-cycle datapath, including the PC feedback path and branch/jump selection logic.
 
-The program counter tracks the current instruction address and updates it every clock cycle.
+```mermaid
+flowchart TD
+    PC[Program Counter] -->|PC address| IM[Instruction Memory]
+    IM -->|instruction| CU[Control Unit]
+    IM -->|PC| PC4[PC + 4]
 
-- Input: current PC value and reset signal
-- Output: next PC state
-- Behavior: resets to zero on reset, otherwise updates to the input PC value
+    CU -->|control| RF[Register File]
+    CU -->|control| ALUCTRL[ALU Control]
+    RF -->|rs1, rs2| ALU[ALU]
+    RF -->|rd| WB[Writeback MUX]
 
-This module is the central element that controls instruction sequencing.
+    IM -->|instruction| IMM[Immediate Generator]
+    IMM -->|ImmExt| ALU
+    CU -->|ALUSrc| MUXA[ALU Operand MUX]
+    MUXA --> ALU
 
-### 2. Instruction Memory
-File: `instruction_mem.v`
+    ALU -->|ALU result| DM[Data Memory]
+    ALU -->|jump target| JUMP[Branch / Jump Logic]
+    PC4 -->|sequential path| JUMP
+    IMM -->|branch immediate| JUMP
 
-Instruction memory stores the machine instructions as a 32-bit word array.
+    JUMP -->|branch target| PCSEL[PC Selection MUX]
+    PCSEL -->|PC_next| PC
 
-- The address is word-aligned using `read_address >> 2`
-- The instruction is fetched from memory and passed to the decoding logic
+    DM -->|memory data| WB
+    ALU -->|ALU result| WB
+    WB -->|write_data| RF
 
-This module is essential for fetching the current instruction at each PC value.
+    PC -->|PC feedback| PC
+```
 
-### 3. Register File
-File: `reg_file.v`
+This block-level view shows the same hardware structure seen in the design: the PC fetches instructions, the control unit decodes them, the register file and immediate generator feed operands into the ALU, and branch/jump logic modifies the next PC value before the next fetch cycle.
 
-The register file is a bank of 32 registers used for source and destination operands.
+---
 
-- Reads `rs1` and `rs2`
-- Writes to `rd` when `reg_write` is asserted
-- Resets the registers during initialization
+## RTL Module Architecture
 
-This provides the instruction operand values used by the ALU and datapath.
+The processor is assembled from the following RTL modules present in the repository:
 
-### 4. Immediate Generator
-File: `imm_gen.v`
+| Module | Purpose | Inputs | Outputs | Role in datapath |
+| --- | --- | --- | --- | --- |
+| `program_counter.v` | Stores the current 32-bit PC | `clk`, `rst`, `PC_in` | `PC_out` | Drives the instruction fetch address |
+| `PC_inc.v` | Generates `PC + 4` | `fromPC` | `toPC` | Sequential PC path |
+| `mux.v` | Generic 32-bit 2:1 multiplexer | `sel`, `A`, `B` | `mux_out` | Used for ALU operands, PC selection, and writeback paths |
+| `instruction_mem.v` | 32-bit instruction memory | `clk`, `rst`, `read_address` | `instruction_out` | Fetches instruction words from PC-derived addresses |
+| `reg_file.v` | 32 general-purpose registers | `clk`, `rst`, `reg_write`, `rs1`, `rs2`, `rd`, `write_data` | `read_data_1`, `read_data_2` | Source and destination operands |
+| `control_unit.v` | Decodes opcode and drives control signals | `opcode` | `ALUSrc`, `MemtoReg`, `RegWrite`, `MemRead`, `MemWrite`, `Branch`, `LUI_en`, `AUIPC_en`, `JAL_en`, `JALr_en`, `ALUop` | Main control logic |
+| `imm_gen.v` | Generates immediates for different instruction formats | `opcode`, `instruction` | `ImmExt` | Sign-extends and aligns immediate values |
+| `ALU_control.v` | Maps ALUOp plus funct fields to ALU function | `ALUOp`, `func7`, `func3` | `control_out` | Selects ADD/SUB/AND/OR behavior |
+| `ALU_unit.v` | Arithmetic/logical datapath | `A`, `B`, `control_in` | `zero`, `ALU_out` | Executes arithmetic and comparison operations |
+| `branch_adder.v` | Branch target computation | `plus4_addr`, `ImmAddr` | `mux_in_adder` | Calculates `PC + branch immediate` |
+| `gate_logic.v` | Branch condition gate | `Branch`, `zero` | `and_out` | Produces branch-taken signal |
+| `data_mem.v` | Data memory for loads and stores | `clk`, `rst`, `MemRead`, `MemWrite`, `address`, `write_data` | `read_data` | Implements load/store access |
+| `top.v` | Full CPU integration | `clk`, `rst` | internal datapath | Connects all modules and handles PC/update multiplexing |
 
-This module extracts the immediate value from the instruction based on its format.
+### Module notes
 
-Supported categories include:
+#### `program_counter.v`
 
-- I-type immediate values
-- S-type store immediates
-- B-type branch immediates
-- U-type immediates for LUI and AUIPC
-- J-type immediates for JAL and JALR
+The program counter stores the current 32-bit PC value and updates on the active clock edge. It includes reset behavior and receives the next PC value through `PC_in`.
 
-This logic is critical because different instruction formats encode immediate values in different bit positions.
+#### `PC_inc.v`
 
-### 5. Control Unit
-File: `control_unit.v`
+This module generates `PC + 4`, which is used for sequential execution and as the return-address value for JAL/JALR.
 
-The control unit decodes the opcode and produces the datapath control signals.
+#### `mux.v`
 
-It determines:
+`mux.v` is a generic 32-bit 2:1 multiplexer used throughout the datapath for ALU operands, PC selection, and writeback selection.
 
-- whether a branch is taken
-- whether memory is read or written
-- whether data is sent from memory or ALU to the register file
-- whether ALU input uses immediate or register value
-- whether a register write occurs
-- which instruction type is being executed
+#### `instruction_mem.v`
 
-This acts as the brain of the processor for instruction interpretation.
+This module implements a 32-bit instruction memory addressed from the PC. In the current simulation setup, instruction memory locations are indexed based on the instruction address, and the CPU fetches each instruction word from memory.
 
-### 6. ALU Unit
-File: `ALU_unit.v`
+#### `reg_file.v`
 
-The ALU executes the arithmetic and logical operations required by the instruction stream.
+The register file contains 32 general-purpose 32-bit registers with two asynchronous read ports and one synchronous write port. Reset initialization is implemented, and x2/sp is initialized to 64 in the current implementation. x0 remains the zero register as used by RISC-V programs.
 
-Supported operations in this implementation include:
+#### `control_unit.v`
 
+The control unit decodes the 7-bit opcode and generates the main control signals for the datapath, including:
+
+- `ALUSrc`
+- `MemtoReg`
+- `RegWrite`
+- `MemRead`
+- `MemWrite`
+- `Branch`
+- `LUI_en`
+- `AUIPC_en`
+- `JAL_en`
+- `JALr_en`
+- `ALUop`
+
+#### `imm_gen.v`
+
+The immediate generator produces the sign-extended or appropriately placed immediate values for:
+
+- I-type
+- S-type
+- B-type
+- U-type
+- J-type
+
+It is a key datapath block because each instruction format encodes immediates in different bit positions.
+
+#### `ALU_control.v`
+
+The ALU control block combines `ALUOp`, `funct7`, and `funct3` to select the arithmetic or logical operation executed by the ALU. The current implementation includes ADD, SUB, AND, and OR support. BEQ uses subtraction/equality detection because the zero flag from the ALU indicates equality.
+
+#### `ALU_unit.v`
+
+The ALU executes arithmetic and logical operations and generates a zero flag. This zero output is used by BEQ comparisons; when the ALU subtracts two operands and the result is zero, the branch condition is satisfied.
+
+#### `branch_adder.v`
+
+This module computes the PC-relative branch target based on `PC + immediate`.
+
+#### `gate_logic.v`
+
+`gate_logic.v` produces the branch-taken condition as `Branch AND zero`, which is used to decide whether the branch target is selected as the next PC.
+
+#### `data_mem.v`
+
+The data memory supports synchronous writes and readback for load/store operations. It is used to implement `LW` and `SW` in the current datapath.
+
+#### `top.v`
+
+`top.v` integrates the entire CPU datapath, connects all modules, and implements the complete PC selection, control, and writeback path used during execution.
+
+---
+
+## Control Unit
+
+The control unit decodes the instruction opcode and generates the control signals necessary to steer the datapath. The main control signals are:
+
+| Signal | Purpose |
+| --- | --- |
+| `ALUSrc` | Selects ALU operand source between register data and immediate |
+| `MemtoReg` | Selects memory data vs. ALU result for writeback |
+| `RegWrite` | Enables register writeback |
+| `MemRead` | Enables load data read from memory |
+| `MemWrite` | Enables data-memory write |
+| `Branch` | Indicates a branch instruction is active |
+| `LUI_en` | Enables upper-immediate writeback path |
+| `AUIPC_en` | Enables `PC + upper immediate` path |
+| `JAL_en` | Selects JAL operation and PC-relative jump target |
+| `JALr_en` | Selects JALR operation and register-relative jump target |
+| `ALUOp` | Selects the ALU control mode |
+
+### Control behavior for the implemented subset
+
+| Instruction | Control behavior |
+| --- | --- |
+| R-type | `ALUSrc = 0`, `RegWrite = 1`, `ALUOp = 10` |
+| ADDI | `ALUSrc = 1`, `RegWrite = 1`, immediate used in ALU |
+| LW | `ALUSrc = 1`, `MemRead = 1`, `MemtoReg = 1`, `RegWrite = 1` |
+| SW | `ALUSrc = 1`, `MemWrite = 1` |
+| BEQ | `Branch = 1`, ALU performs subtraction, zero flag is checked |
+| LUI | `LUI_en = 1`, immediate value is written back to rd |
+| AUIPC | `AUIPC_en = 1`, `PC + immediate` written back to rd |
+| JAL | `JAL_en = 1`, `RegWrite = 1`, PC-relative target and return address calculation |
+| JALR | `JALr_en = 1`, `RegWrite = 1`, rs1 + immediate target |
+
+The implementation uses the actual control values present in the RTL and avoids inventing unsupported signals or unimplemented instruction behaviors.
+
+---
+
+## ALU Control
+
+The ALU uses a two-level control mechanism:
+
+Instruction opcode
+→ Main Control Unit
+→ `ALUOp`
+→ ALU Control
+→ ALU function
+
+The current ALU operations implemented in the design are:
+
+- ADD
+- SUB
 - AND
 - OR
-- ADD
-- SUBTRACT
 
-The `zero` signal is used to signal equality conditions for branch instructions.
+The control block is implemented in `ALU_control.v`, which interprets `ALUOp`, `funct7`, and `funct3` to select the correct ALU operation.
 
-### 7. ALU Control
-File: `ALU_control.v`
+For `BEQ`, the control path selects branch-comparison mode. The ALU performs subtraction and drives the `zero` flag. When the subtraction result is zero, the branch-decision logic asserts the branch condition.
 
-The ALU control logic maps the instruction’s opcode, funct7, and funct3 fields into the correct ALU operation.
+The branch condition is computed as:
 
-This logic bridges the gap between the instruction encoding and the hardware-level ALU inputs.
+`Branch AND zero`
 
-![ALU control mapping](inst1.png)
-
-The first image explains the ALU control lines and their mapping to functions such as AND, OR, add, and subtract. It shows the operation table used by the control logic.
-
-![ALU control truth table](isnt2.png)
-
-The second image illustrates a compact ALU control truth table, where the control signals depend on ALUOp, funct7, and funct3. This is the exact type of logic used to distinguish between add, subtract, AND, and OR operations.
+This means that a branch instruction only redirects the PC when both the instruction is a branch and the comparison result is equal.
 
 ---
 
-## Datapath Flow in Simple Terms
+## Immediate Generation
 
-The processor operates in a classic single-cycle manner:
+The immediate generator supports the instruction formats implemented in this CPU. It generates either sign-extended values or appropriately shifted immediate constants depending on the opcode.
 
-1. Fetch the instruction from memory.
-2. Decode its opcode and fields.
-3. Read operands from the register file.
-4. Form immediate values.
-5. Run the ALU operation.
-6. Compute branch target or next PC.
-7. Write results back to registers or memory.
-8. Repeat for the next instruction.
+### I-type
 
-This is why the design is called a single-cycle CPU: all major steps occur within one clock cycle for each instruction, instead of being split across pipeline stages.
+`instruction[31:20]` is used for immediate extraction. This is used for instructions such as `ADDI` and `LW`.
 
----
+### S-type
 
-## Control and ALU Operation Details
+The store immediate is assembled from:
 
-The ALU control logic follows the pattern of the RISC-V instruction format.
+`instruction[31:25] + instruction[11:7]`
 
-For example:
+This is used for `SW`.
 
-- `LOAD` and `STORE` instructions use ALU add
-- `BEQ` uses subtraction to test equality
-- R-type `ADD` uses ALU add
-- R-type `SUB` uses ALU subtract
-- R-type `AND` uses bitwise AND
-- R-type `OR` uses bitwise OR
+### B-type
 
-The design uses the following decision approach:
+The branch immediate uses the standard RISC-V encoding:
 
-| Instruction type | ALUOp | funct7 | funct3 | ALU action | ALU control |
-| --- | --- | --- | --- | --- | --- |
-| Load/Store | 00 | X | X | add | 0010 |
-| Branch | 01 | X | X | subtract | 0110 |
-| R-type add | 10 | 0000000 | 000 | add | 0010 |
-| R-type sub | 10 | 0100000 | 000 | subtract | 0110 |
-| R-type and | 10 | 0000000 | 111 | AND | 0000 |
-| R-type or | 10 | 0000000 | 110 | OR | 0001 |
+`instruction[31], instruction[7], instruction[30:25], instruction[11:8], 0`
 
-This behavior is the heart of the CPU’s instruction execution.
+with sign extension applied as required.
+
+### U-type
+
+For `LUI` and `AUIPC`, the immediate is formed from:
+
+`instruction[31:12] << 12`
+
+which is equivalent to taking the upper 20 bits and placing 12 zeros at the low end.
+
+### J-type
+
+The JAL immediate is assembled from:
+
+`instruction[31], instruction[19:12], instruction[20], instruction[30:21], 0`
+
+with sign extension before use in the PC-relative jump target calculation.
 
 ---
 
-## Branching and Jump Handling
+## PC / Control Flow Path
 
-The datapath includes logic to handle:
+The design supports several PC update sources, depending on the instruction being executed.
 
-- branch addresses
-- jump addresses
-- PC selection between sequential execution and target execution
+1. Sequential execution:
+   `PC + 4`
 
-The processor computes both the ordinary PC+4 path and the branch/jump target path, then selects the correct value using control signals.
+2. BEQ:
+   `PC + branch immediate`
 
-This ensures the CPU can:
+3. JAL:
+   `PC + JAL immediate`
 
-- continue sequentially for normal instructions
-- jump to a target address for JAL/JALR
-- branch to a target when a condition is true
+4. JALR:
+   `rs1 + immediate`
 
----
+The mux chain in `top.v` routes the correct value into `PC_next`. The architecture includes separate logic for:
 
-## Data Memory and Write Back
+- normal sequential PC progression
+- branch selection
+- JAL target selection
+- JALR target selection
 
-The design also includes a data memory block for load/store instructions.
+For JAL and JALR, the ALU generates the jump target and the PC selection logic routes that target to `PC_next`. Separately, `PC + 4` is routed through the register writeback path so that the return address is written to `rd` as part of the link operation.
 
-- Memory read output is sent to the write-back mux
-- ALU result can also be written back to the register file
-- A final mux selects the correct source for register writes
+The design was verified with the following JAL/JALR instructions:
 
-This allows instructions such as `lw`, `sw`, and arithmetic operations to work correctly in the same single-cycle datapath.
+- `JAL`: `008000EF`
+- `JALR`: `004100E7`
 
----
-
-## File Structure
-
-This repository contains the essential Verilog modules of the processor:
-
-- `top.v` — top-level design integrating the CPU datapath
-- `control_unit.v` — instruction decoding and control signal generation
-- `ALU_unit.v` — arithmetic and logical computation
-- `ALU_control.v` — ALU operation selection
-- `program_counter.v` — program counter register
-- `instruction_mem.v` — instruction fetch memory
-- `reg_file.v` — register storage
-- `imm_gen.v` — immediate extraction
-- `data_mem.v` — memory for load/store operations
-- `branch_adder.v` — branch target address calculation
-- `PC_inc.v` — PC increment logic
-- `mux.v` — generic multiplexing module
-- `gate_logic.v` — branch gating logic
+This confirms the implemented behavior for PC-relative and register-relative jumps within the tested subset.
 
 ---
 
-## How to Use This Project
+## JAL / JALR Return Address
 
-1. Open the project in a Verilog-capable environment such as Vivado.
-2. Add these modules to a design project.
-3. Instantiate `top.v` as the system-level module.
-4. Drive the `clk` and `rst` inputs with a testbench.
-5. Simulate the CPU behavior for sample instructions.
-6. Extend the datapath with additional instructions as needed.
+A dedicated writeback selection path is provided so that `JAL` and `JALR` write `PC + 4` to the destination register instead of the ALU result or data-memory result.
 
-A simple testbench can:
+### JAL
 
-- initialize the clock and reset
-- set an initial program counter value
-- fetch instructions from `instruction_mem.v`
-- validate register writes and immediate generation
-- check branch behavior and ALU output
+- Target = `PC + immediate`
+- `rd = PC + 4`
+
+### JALR
+
+- Target = `rs1 + immediate`
+- `rd = PC + 4`
+
+This return-address path is an important design feature of the processor. It allows the architecture to support function call and return semantics within the verified subset, and it is handled explicitly in the top-level datapath instead of being treated as a normal ALU writeback.
 
 ---
 
-## Educational Value
+## Memory Operations
 
-This project is a valuable learning resource for understanding:
+The processor supports memory access for the implemented load/store subset.
 
+### LW
+
+`rs1 + immediate`
+→ ALU address generation
+→ Data memory read
+→ Register writeback
+
+### SW
+
+`rs1 + immediate`
+→ ALU address generation
+→ Data memory write
+
+This memory interface is used by `LW` and `SW` in the current design. The implementation does not claim support for byte or halfword memory transfers beyond the verified subset.
+
+---
+
+## BEQ Verification
+
+The project includes an independent BEQ verification flow using a dedicated machine-code test sequence. The tested program is:
+
+```asm
+addi x1, x0, 10
+addi x2, x0, 10
+beq  x1, x2, 8
+addi x3, x0, 99
+addi x3, x0, 55
+```
+
+Machine code used:
+
+```text
+00a00093
+00a00113
+00208463
+06300193
+03700193
+```
+
+This verification sequence demonstrates the expected branch behavior:
+
+- x1 becomes 10
+- x2 becomes 10
+- BEQ compares the two values
+- zero becomes 1
+- the branch is taken
+- the instruction at PC 0x0C is skipped
+- execution continues at PC 0x10
+- x3 becomes 55 (0x37)
+
+The course material also showed a branch instruction labeled as BEQ with the encoding `FE229CE3`; however, that encoding is actually `BNE` because `funct3 = 001`. For the implemented behavior, an independent BEQ test vector was used to validate the branch path without relying on that course-provided example.
+
+---
+
+## Verification Methodology
+
+Verification was performed using the following methodology:
+
+- Vivado behavioral simulation
+- RTL waveform inspection
+- register-level observation
+- ALU input/output verification
+- control-signal verification
+- PC progression verification
+- memory operation verification
+
+The instruction subset was validated incrementally: individual instructions were tested first, then control-flow instructions were integrated and evaluated in the full datapath. This was a simulation-based verification flow suited to the scope of the current design.
+
+The project does not claim formal verification, UVM testing, cocotb-based regression coverage, or assertion-based formal proof because those were not implemented in this repository.
+
+---
+
+## Verified Instructions
+
+The following instruction set was verified in the implementation and used in waveform and simulation analysis.
+
+| Instruction | Example encoding | Key verification result | Status |
+| --- | --- | --- | --- |
+| ADD | `00f707b3` | Register addition | Verified |
+| SUB | `40f707b3` | Register subtraction | Verified |
+| AND | `00f777b3` | Bitwise AND | Verified |
+| OR | `00f767b3` | Bitwise OR | Verified |
+| ADDI | `00378793` | Register + immediate | Verified |
+| SW | `fef42623` | Store to data memory | Verified |
+| LW | `fec42783 / fe842783` | Load from data memory | Verified |
+| LUI | `12345537` | Upper immediate writeback | Verified |
+| AUIPC | `00001617` | PC + upper immediate | Verified |
+| BEQ | `00208463` | Conditional PC-relative branch | Verified |
+| JAL | `008000EF` | PC-relative jump + PC+4 writeback | Verified |
+| JALR | `004100E7` | Register-relative jump + PC+4 writeback | Verified |
+
+---
+
+## Representative Waveform
+
+The waveform below is the representative waveform used to validate the branch behavior of the processor. It captures the BEQ execution and is a representative example of the simulation methodology used in the project.
+
+![Representative BEQ waveform](testbench_waveform.png)
+
+The waveform highlights the critical branch evaluation at `PC = 0x08`:
+
+- Instruction = `00208463`
+- `RD1 = 10`
+- `RD2 = 10`
+- Immediate = `8`
+- ALU result = `0`
+- Branch is taken
+- PC changes to `0x10`
+- The instruction at `0x0C` is skipped
+
+This demonstrates the actual branch decision path within the RTL datapath during verification.
+
+---
+
+## Elaborated Design
+
+The Vivado elaborated design is included below and confirms successful RTL elaboration of the implemented hardware hierarchy.
+
+![Vivado elaborated design](elaborated%20design.png)
+
+This elaborated design confirms that the processor RTL synthesizes into a coherent hardware structure and shows the integrated datapath and module hierarchy. The current Vivado elaborated design screenshot reports:
+
+- 20 cells
+- 2 I/O ports
+- 565 nets
+
+These values represent the elaborated RTL hierarchy and are not FPGA resource-utilization results. They are not synthesis or implementation metrics and should not be interpreted as LUT, FF, BRAM, timing, or power numbers.
+
+---
+
+## Toolchain / Development Flow
+
+The processor was developed through a practical hardware-design flow:
+
+1. RTL module development in Verilog
+2. Top-level CPU integration
+3. Individual instruction testing
+4. RISC-V machine-code generation
+5. Vivado behavioral simulation
+6. Waveform-based debugging
+7. Control/datapath corrections
+8. JAL/JALR return-address path implementation
+9. BEQ verification
+10. Vivado RTL elaboration
+11. Synthesis and implementation planned as future work
+
+The project used the GNU RISC-V toolchain and WSL/Ubuntu to assemble test programs and generate machine-code instruction sequences for hardware verification.
+
+---
+
+## Design Debugging and Key Fixes
+
+The development process involved several targeted debugging and correction steps that were necessary to make the datapath function correctly.
+
+1. R-type ALU control:
+   - Corrected ALUOp handling for R-type instructions.
+
+2. BEQ:
+   - Configured the branch ALU operation around subtraction/equality detection.
+
+3. LUI:
+   - Added LUI control and immediate writeback path.
+
+4. AUIPC:
+   - Corrected AUIPC control so `AUIPC_en` is asserted without accidentally taking the JAL path.
+   - Verified the `PC + immediate` operation.
+
+5. JAL:
+   - Corrected JAL control.
+   - Implemented the PC-relative jump target.
+   - Added `PC + 4` writeback to `rd`.
+
+6. JALR:
+   - Implemented the register-relative jump target.
+   - Added `PC + 4` writeback.
+   - Verified the operation with `x2 + immediate` targeting.
+
+7. BEQ test vector:
+   - Created an independent BEQ test because the supplied course vector `FE229CE3` corresponds to BNE rather than BEQ.
+
+These are factual iteration points in the design history and reflect hardware debugging at the RTL and control-path level.
+
+---
+
+## Example Execution Flow
+
+The following examples illustrate how instructions move through the hardware datapath.
+
+### ADD
+
+Instruction
+→ Instruction Memory
+→ Register File
+→ ALU Control
+→ ALU
+→ Writeback
+→ `rd`
+
+### LW
+
+Instruction
+→ Register File
+→ Immediate Generator
+→ ALU address calculation
+→ Data Memory
+→ Writeback
+→ `rd`
+
+### BEQ
+
+Instruction
+→ Register File
+→ ALU comparison
+→ `zero`
+→ Branch AND zero
+→ PC mux
+→ branch target
+
+### JAL
+
+Instruction
+→ Immediate Generator
+→ ALU target calculation
+→ PC mux
+→ PC
+
+and simultaneously:
+
+`PC + 4` → `rd`
+
+---
+
+## Repository Structure
+
+The repository currently contains the RTL modules, test utilities, and verification assets in the project directory. A conceptual structure is shown below to reflect the project layout:
+
+```text
+Single-Cycle-RISCV-CPU/
+├── README.md
+├── top.v
+├── program_counter.v
+├── PC_inc.v
+├── instruction_mem.v
+├── reg_file.v
+├── control_unit.v
+├── imm_gen.v
+├── ALU_control.v
+├── ALU_unit.v
+├── branch_adder.v
+├── gate_logic.v
+├── data_mem.v
+├── mux.v
+├── testbench_waveform.png
+├── elaborated design.png
+├── design.png
+├── test/
+│   ├── add.c
+│   ├── sub.c
+│   ├── and.c
+│   ├── or.c
+│   ├── addi.c
+│   ├── mem.c
+│   ├── beq_testbench.txt
+│   ├── beq.c
+│   ├── beq.S
+│   ├── linker.ld
+│   └── beq_updated.hex
+├── README.md
+└── LICENSE
+```
+
+This is a conceptual representation of the current project layout. The exact repository structure is the one present in the workspace, and the README reflects the implementation that is actually present in the design files.
+
+---
+
+## Limitations
+
+This design has well-defined scope boundaries and does not claim to be a complete processor implementation beyond the tested subset.
+
+Current limitations include:
+
+- Not the complete RV32I ISA
+- No pipelining
+- No hazard detection or forwarding because it is a single-cycle CPU
+- No cache hierarchy
+- Instruction and data memories are simple RTL memories
+- No branch prediction
+- No interrupts, exceptions, or CSRs
+- No privileged architecture support
+- No synthesis, timing, or FPGA implementation results yet
+- Verification is simulation-based rather than formal
+
+These are not presented as failures; they are a clear statement of the current engineering scope of the design.
+
+---
+
+## Future Work
+
+Future work for this design includes:
+
+1. Complete RV32I instruction support:
+   - BNE
+   - BLT
+   - BGE
+   - SLT
+   - shifts
+   - additional load/store widths
+   - etc.
+
+2. Improve the instruction/data memory implementation.
+
+3. Synthesize the processor in Vivado.
+
+4. Analyze:
+   - LUT utilization
+   - FF utilization
+   - BRAM
+   - timing
+   - Fmax
+   - power estimate
+
+5. Deploy and test on Artix-7 FPGA hardware.
+
+6. Upgrade the single-cycle architecture to a 5-stage pipeline:
+   - IF
+   - ID
+   - EX
+   - MEM
+   - WB
+
+7. Add:
+   - forwarding
+   - hazard detection
+   - pipeline registers
+   - branch handling
+
+8. Compare single-cycle and pipelined architectures.
+
+None of these items are claimed as already implemented; they represent the next engineering steps for the project.
+
+---
+
+## Why This Project Matters
+
+This project demonstrates the relationship between hardware structure and instruction semantics in a real CPU. It shows how a processor is assembled from modular RTL blocks, how instruction opcodes drive control logic, how register-file and immediate values are fed into the ALU, how branch and jump logic modifies the PC, and how memory accesses fit into the datapath.
+
+It also represents a realistic FPGA/VLSI design workflow:
+
+- RTL design
 - CPU datapath design
-- instruction decoding
-- register file operations
-- immediate format handling
-- ALU control logic
-- branch target generation
-- single-cycle execution model
+- ISA-level understanding
+- Verilog HDL modeling
+- digital logic design
+- control/datapath integration
+- memory interface implementation
+- hardware debugging using waveforms
 
-It is a good starting point for students and designers who want to learn how a simple processor is structured in hardware.
+This is relevant to digital design, processor architecture, FPGA development, and hardware engineering work in general.
+
+---
+
+## Synthesis & FPGA Implementation — Planned
+
+This section is intentionally reserved for future work.
+
+The current project includes completed RTL design, behavioral simulation, and verification at the instruction level. Synthesis, timing analysis, FPGA implementation, resource utilization, and power analysis have not yet been run and therefore are not reported here.
+
+Planned future work includes:
+
+- Vivado synthesis
+- implementation run
+- design timing analysis
+- LUT/FF/BRAM utilization reporting
+- Fmax estimation
+- power estimation
+- artifact documentation for final portfolio presentation
+
+---
+
+## Author
+
+Ishaan Shriram Vaidya
+
+B.Tech Electronics and Telecommunication Engineering  
+Sardar Patel Institute of Technology, Mumbai
+
+GitHub:  
+[ADD GITHUB LINK]
+
+LinkedIn:  
+[ADD LINK]
 
 ---
 
 ## Summary
 
-This repository presents a small but complete educational RISC-V single-cycle processor based on RV32I principles. It is not a production-grade CPU, but it is a strong hardware design example for understanding the relationship between instructions, control logic, datapath selection, and execution in a real processor.
+This processor is a focused digital design project implementing a verified subset of the RV32I ISA in Verilog. It is a practical example of how a CPU datapath is structured, how control logic steers execution, how branch and jump operations affect the PC, and how a processor can be verified using Vivado simulation and waveform inspection.
 
-The design is deliberately modular and easy to extend, making it a practical foundation for future work in pipelining, hazard handling, instruction decode expansion, and FPGA implementation.
-
----
-
-## License
-
-This project is intended for educational and learning purposes.
+The current implementation is intentionally scoped to a real subset of the ISA that was designed, debugged, and verified in hardware simulation. It is a strong foundation for future expansion toward a complete RV32I implementation and eventual FPGA-based validation.
