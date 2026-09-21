@@ -1,6 +1,6 @@
 //generates the immediate value spread into the instructions
 
-module ImmGen (
+module imm_gen (
     input [6:0]opcode, //-- 0010011, JAL, JALr
     input [31:0]instruction,
     output reg [31:0]ImmExt

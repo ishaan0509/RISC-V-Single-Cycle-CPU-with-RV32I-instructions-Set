@@ -17,6 +17,7 @@ module ALU_control (
             6'b10_1_000: control_out <= 4'b0110;   //SUB
             6'b10_0_111: control_out <= 4'b0000;   //AND
             6'b10_0_110: control_out <= 4'b0001;   //OR
+            default: control_out <= 4'b0010;
         endcase
     end
 

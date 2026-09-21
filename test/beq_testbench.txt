@@ -1,0 +1,56 @@
+
+`timescale 1ns / 1ps
+
+module top_tb;
+
+    reg clk;
+    reg rst;
+
+    // Instantiate CPU
+    top DUT (
+        .clk(clk),
+        .rst(rst)
+    );
+
+    // Clock: 10 ns period
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    // Reset + run
+    initial begin
+        rst = 1;
+
+        #20;
+        rst = 0;
+
+        #70;
+
+        $finish;
+    end
+
+    // Monitor CPU
+    always @(posedge clk) begin
+        $display(
+            "TIME=%0t | PC=%h | INST=%h | RD1=%0d | RD2=%0d | IMM=%0d | ALUOp=%b | ALU_CTRL=%b | ALU_OUT=%0d | ZERO=%b | BRANCH=%b | AND=%b | PC_NEXT=%h | x1=%0d | x2=%0d | x3=%0d",
+            $time,
+            DUT.PC_top,
+            DUT.instruction_top,
+            DUT.RD1_top,
+            DUT.RD2_top,
+            DUT.ImmExt_top,
+            DUT.ALUOp_top,
+            DUT.ALU_ctrl_top,
+            DUT.ALU_out_top,
+            DUT.zero_top,
+            DUT.Branch_top,
+            DUT.and_out_top,
+            DUT.PC_next_mux_out,
+            DUT.regFile.registers[1],
+            DUT.regFile.registers[2],
+            DUT.regFile.registers[3]
+        );
+    end
+
+endmodule

@@ -1,16 +1,3 @@
-`include "ALU_control.v"
-`include "ALU_unit.v"
-`include "branch_adder.v"
-`include "control_unit.v"
-`include "data_mem.v"
-`include "gatelogic.v"
-`include "ImmGen.v"
-`include "instruction_mem.v"
-`include "mux.v"
-`include "PC_inc.v"
-`include "program_counter.v"
-`include "reg_file.v"
- 
 module top(
     input clk, rst
 );
@@ -19,7 +6,7 @@ module top(
     wire [3:0] ALU_ctrl_top;
     wire [1:0] ALUOp_top;
     wire JALr_en_top, JAL_en_top, AUIPC_en_top, RegWrite_top, ALUSrc_top, Branch_top, zero_top, and_out_top, MemtoReg_top, MemRead_top, MemWrite_top, LUI_en_top;
- 
+    wire [31:0] wb_jal_mux_out_top;
  
     //pc
     program_counter PC(
@@ -65,13 +52,21 @@ module top(
         .A(data_mem_mux_out_top), .B(ImmExt_top),
         .mux_out(mux_out_write_data)
     );
+    
+    // JAL/JALR writeback mux
+    mux jal_wb_mux(
+        .sel(JAL_en_top | JALr_en_top),
+        .A(mux_out_write_data),
+        .B(PC_plused_top),
+        .mux_out(wb_jal_mux_out_top)
+    );
  
  
     //reg file
     reg_file regFile(
         .clk(clk), .rst(rst), .reg_write(RegWrite_top),
         .rs1(instruction_top[19:15]), .rs2(instruction_top[24:20]), .rd(instruction_top[11:7]),
-        .write_data(mux_out_write_data), 
+        .write_data(wb_jal_mux_out_top), 
         .read_data_1(RD1_top), .read_data_2(RD2_top)
     );
  
@@ -79,12 +74,12 @@ module top(
     //control unit important signal 
     control_unit ctrl_unit(
         .opcode(instruction_top[6:0]),
-        .JALr_en(JALr_en_top), .AUIPC_en(AUIPC_en_top), .JAL_en(JAL_en_top), .LUI_en(LUI_en_top), .Branch(Branch_top), .MemRead(MemRead_top), .MemtoReg(MemtoReg_top), .ALUOp(ALUOp_top), .MemWrite(MemWrite_top), .ALUSrc(ALUsrc_top), .RegWrite(RegWrite_top)
+        .JALr_en(JALr_en_top), .AUIPC_en(AUIPC_en_top), .JAL_en(JAL_en_top), .LUI_en(LUI_en_top), .Branch(Branch_top), .MemRead(MemRead_top), .MemtoReg(MemtoReg_top), .ALUop(ALUOp_top), .MemWrite(MemWrite_top), .ALUSrc(ALUSrc_top), .RegWrite(RegWrite_top)
     );
  
  
     //imm generator
-    ImmGen Imm(
+    imm_gen Imm(
         .opcode(instruction_top[6:0]),
         .instruction(instruction_top),
         .ImmExt(ImmExt_top)
@@ -95,8 +90,8 @@ module top(
     //alu contol
     ALU_control ALUctrl(
         .ALUOp(ALUOp_top),
-        .fun7(instruction_top[30]),
-        .fun3(instruction_top[14:12]),
+        .func7(instruction_top[30]),
+        .func3(instruction_top[14:12]),
         .control_out(ALU_ctrl_top)
     );
  
@@ -109,7 +104,7 @@ module top(
  
     //mux b //rd2 and imm-value
     mux ALU_mux(
-        .sel(ALUsrc_top),
+        .sel(ALUSrc_top),
         .A(RD2_top), .B(ImmExt_top),
         .mux_out(ALU_mux_out_top)
     );
@@ -125,15 +120,15 @@ module top(
  
  
     //branch adder
-    Branch_adder BranchAdd(
+    branch_adder BranchAdd(
         .plus4_addr(PC_top), .ImmAddr(ImmExt_top),
-        .mux_in_addr(adder2_out_top)
+        .mux_in_adder(adder2_out_top)
     );
  
  
  
     //gate logic
-    gatelogic gate(
+    gate_logic gate(
         .Branch(Branch_top), .zero(zero_top),
         .and_out(and_out_top)
     );

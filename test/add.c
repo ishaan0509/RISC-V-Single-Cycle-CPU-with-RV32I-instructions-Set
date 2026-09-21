@@ -1,15 +1,9 @@
-volatile int result;
-
-int main(void)
+int main()
 {
-    int a = 10;
-    int b = 20;
+    int a = 3;
+    int b = 7;
 
-    result = a + b;
+    int c = a + b;
 
-    while (1)
-    {
-    }
-
-    return 0;
+    return c;
 }
